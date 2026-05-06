@@ -1,0 +1,27 @@
+# solar-stats-card — zero-config (auto-discovers your Envoy entities)
+type: custom:solar-stats-card
+
+# ---
+# Or with custom metrics:
+#
+# type: custom:solar-stats-card
+# metrics:
+#   - entity: sensor.envoy_482518016187_current_power_production
+#     label: Solar
+#     icon: mdi:solar-power
+#     target_unit: kW
+#     fixed: 2
+#   - entity: sensor.envoy_482518016187_energy_production_today
+#     label: Today
+#     icon: mdi:weather-sunny
+#     target_unit: kWh
+#     fixed: 1
+#   - entity: sensor.envoy_482518016187_lifetime_energy_production
+#     label: Lifetime
+#     icon: mdi:counter
+#     target_unit: kWh
+#     auto_unit: true       # auto-scales to MWh past 1000
+#   - entity: sensor.solar_savings_today
+#     label: Saved today
+#     icon: mdi:cash-plus
+#     color: "#43a047"

@@ -1,141 +1,182 @@
-# Solar Layout Card
+# Solar Cards
 
-A custom Lovelace card for [Home Assistant](https://www.home-assistant.io/) that renders a heat-mapped, true-to-roof layout of an [Enphase](https://enphase.com/) microinverter system. Live per-panel power, daily-energy mode, time-travel slider, pan/zoom.
+A small suite of Lovelace cards for [Home Assistant](https://www.home-assistant.io/) + [Enphase](https://enphase.com/) microinverter systems. One HACS install registers three custom elements:
+
+- [`solar-layout-card`](#solar-layout-card) — heat-mapped roof layout, time-travel slider
+- [`solar-stats-card`](#solar-stats-card) — live chip strip (now / today / 7-day / lifetime)
+- [`solar-flow-card`](#solar-flow-card) — production vs consumption vs exported, 24h
 
 ```
-[ screenshot here — drop the PNG into docs/screenshots/ once you have one ]
+[ screenshots — drop into docs/screenshots/ ]
 ```
 
 ## Why
 
-The official Enphase HA integration gives you per-microinverter `sensor.inverter_<serial>` entities — but they're flat, anonymous, and you have no idea which serial sits in which corner of the roof. The Enlighten app shows a panel layout, but it's locked in a phone app and doesn't tie back to your dashboards.
-
-This card asks you to paste the same layout JSON that Enlighten already serves to your browser, then heat-maps it onto a clickable, scrollable, zoomable canvas in HA — using the entities your existing Enphase integration already exposes.
+Enphase customers usually have the official [Enphase Envoy](https://www.home-assistant.io/integrations/enphase_envoy/) HA integration installed. It exposes per-microinverter and Envoy-level entities, but the dashboard side is left as an exercise. These cards close that gap with zero apex/mushroom dependencies — just install via HACS, point them at your Enphase entities (auto-discovered in most cases), and ship.
 
 ## Requirements
 
 - Home Assistant **2024.4** or later
-- The official [Enphase Envoy](https://www.home-assistant.io/integrations/enphase_envoy/) integration, configured and producing per-microinverter entities (`sensor.inverter_<serial>`)
-- Optional but recommended: enable the per-inverter `*_energy_production_today` entities in HA's Entities settings — required for the **Today · kWh** view
+- Official [Enphase Envoy](https://www.home-assistant.io/integrations/enphase_envoy/) integration, configured and producing per-inverter entities (`sensor.inverter_<serial>`)
+- Recommended: enable the per-inverter `*_energy_production_today` entities (Settings → Devices → your Envoy → bulk-enable) so `solar-layout-card`'s **Today · kWh** mode has data
 
 ## Install
 
-### HACS (recommended)
-
-Until the card is in the HACS default list:
+### HACS
 
 1. HACS → menu (⋮) → **Custom repositories**
 2. URL: `https://github.com/awolden/solar-layout-card` · Type: **Dashboard**
 3. Click **Solar Layout** in the list, then **Download**
 
-The Lovelace resource is auto-registered for storage-mode dashboards. No restart needed.
+The Lovelace resource auto-registers for storage-mode dashboards. No restart.
 
 ### Manual
 
-1. Download `solar-layout-card.js` from the [latest release](https://github.com/awolden/solar-layout-card/releases)
-2. Drop it in `<config>/www/solar-layout-card.js`
-3. Add the resource (Settings → Dashboards → menu → Resources):
-   - URL: `/local/solar-layout-card.js`
-   - Resource type: JavaScript module
+Download `solar-layout-card.js` from the [latest release](https://github.com/awolden/solar-layout-card/releases), drop it in `<config>/www/`, register `/local/solar-layout-card.js` as a JavaScript-module resource.
 
-## Get your layout JSON
+---
 
-The layout coordinates only live in the Enphase **cloud** (Enlighten). The local Envoy and the v4 developer API don't expose panel positions. You'll grab the JSON from your browser:
+## solar-layout-card
 
-1. Sign in to <https://enlighten.enphaseenergy.com/> as the **system owner**
-2. Navigate to your system's **Array** view (the page that shows your panels in their physical positions)
-3. Open browser **DevTools** (Cmd+Opt+I on macOS, Ctrl+Shift+I on Windows/Linux) → **Network** tab → filter `XHR / Fetch`
-4. Reload the page
-5. Look for a JSON response containing `arrays`, `modules`, `serial_num`, `azimuth`, etc. (often a request to a path containing `array_layout` or similar)
-6. Right-click → Copy → Copy response (or save as JSON)
+Heat-mapped roof layout. Each panel is colored by its current W output (or today's kWh, toggle in the header). Tap a panel → opens that inverter's history.
 
-Paste the body verbatim into the card's `layout:` config — see [Configuration](#configuration). The card accepts the raw Enphase shape; nested `modules[].inverter.serial_num` is read automatically.
+### Required: layout JSON
 
-More detail and screenshots: [docs/getting-layout-json.md](docs/getting-layout-json.md)
+Coordinates only live in Enphase **cloud** (Enlighten). Grab the JSON from the browser:
 
-## Configuration
+1. Sign in to <https://enlighten.enphaseenergy.com/> as the system owner
+2. Navigate to your system's **Array** view
+3. DevTools → **Network** → filter `XHR / Fetch` → reload
+4. Find a JSON response with `arrays`, `modules`, `serial_num`, `azimuth` — copy the response body
 
-Minimum config:
+Full walkthrough: [docs/getting-layout-json.md](docs/getting-layout-json.md)
+
+### Config
 
 ```yaml
 type: custom:solar-layout-card
 layout:
-  arrays:
-    - label: MP1
-      x: 183
-      y: 357
-      azimuth: 270
-      modules:
-        - rotation: 0
-          x: 300
-          y: 107
-          inverter: { serial_num: "542546078538" }
-        # ... rest of your panels
-```
+  arrays: [...]   # paste the JSON you captured
 
-Full schema with defaults:
-
-```yaml
-type: custom:solar-layout-card
-
-# REQUIRED: Enphase array layout JSON (paste straight from Enlighten)
-layout:
-  arrays: [...]
-
-# Entity templates — {serial} is replaced with each module's serial_num.
-# Defaults match the official Enphase HA integration's entity naming.
+# Everything below is optional.
 inverter_power_entity: "sensor.inverter_{serial}"
 inverter_kwh_entity:   "sensor.inverter_{serial}_energy_production_today"
-
-# Total power production / consumption sensors. Auto-detected from
-# sensor.envoy_*_current_power_(production|consumption) if left null.
-production_entity: null
+production_entity: null     # auto: sensor.envoy_*_current_power_production
 consumption_entity: null
-
-# Heatmap upper bounds
-max_w: 460             # peak inverter watts
-max_kwh_per_day: 3.0   # peak per-panel daily energy
-
-# Time-travel slider windows
-history_hours: 12      # for "Now · W" mode lookback
-history_days: 14       # for "Today · kWh" mode lookback
-
-# Panel rendering tweaks (rarely needed)
-panel_short: 100       # short axis in module-frame units
-panel_long:  198       # long axis (matches Enphase's ~199-unit row spacing)
-gap: 1.5               # hairline visible gap between adjacent panels
+max_w: 460                  # peak inverter watts (heatmap top)
+max_kwh_per_day: 3.0        # peak per-panel daily kWh
+history_hours: 12           # "Now" slider lookback
+history_days: 14            # "Today" slider lookback
+panel_short: 100            # short axis in module-frame units
+panel_long:  198            # long axis (matches Enphase's ~199-unit row spacing)
+gap: 1.5                    # hairline gap between adjacent panels
 ```
 
-A working example: [examples/basic.yaml](examples/basic.yaml).
+Working example: [examples/basic-layout.yaml](examples/basic-layout.yaml)
 
-## Features
+---
 
-- **Heat-mapped panels** — white at 0, deep red at peak. Each panel's color is its own current value.
-- **Two modes**, toggled in the header:
-  - `Now · W` — live power output per panel (~5-min cadence per Enphase microinverter reporting)
-  - `Today · kWh` — accumulated energy today, per panel
-- **Time-travel slider** — drag back up to 12 hours in `Now` mode (5-min step), up to 14 days in `Today` mode (1-day step)
-- **Pan / zoom** the roof canvas with scroll-wheel + click-drag (or pinch + drag on touch)
-- **Tap a panel** → opens that inverter's `more-info` dialog with HA's native history graph
-- **Auto-fits** to the layout's bounding box — works for any system size from 2 panels to 50+
-- **Theme-aware** — uses HA's CSS custom properties; respects light/dark themes
-- **Mobile-friendly** — slider gets its own row on narrow screens; bigger touch targets
+## solar-stats-card
+
+Live chip strip. Auto-discovers Envoy entities; falls back to a manual `metrics:` list if you want custom values.
+
+### Default behavior — zero config
+
+```yaml
+type: custom:solar-stats-card
+```
+
+Auto-discovers and renders chips for:
+- **Now** (`sensor.envoy_*_current_power_production`, kW)
+- **Today** (`sensor.envoy_*_energy_production_today`, kWh)
+- **7 days** (`sensor.envoy_*_energy_production_last_seven_days`, kWh)
+- **Lifetime** (`sensor.envoy_*_lifetime_energy_production`, auto-scales kWh ↔ MWh)
+
+### Custom metrics
+
+Override entirely:
+
+```yaml
+type: custom:solar-stats-card
+metrics:
+  - entity: sensor.envoy_482518016187_current_power_production
+    label: Solar
+    icon: mdi:solar-power
+    target_unit: kW
+    fixed: 2
+  - entity: sensor.solar_savings_today
+    label: Saved today
+    icon: mdi:cash-plus
+    color: "#43a047"
+  - entity: sensor.solar_savings_this_month
+    label: Saved this month
+    icon: mdi:cash-multiple
+    color: "#43a047"
+```
+
+Each metric supports: `entity` (required), `label`, `icon`, `target_unit` (W / kW / Wh / kWh / MWh), `fixed` (decimal places), `auto_unit` (true to auto-scale kWh→MWh), `color` (icon color).
+
+Tap any chip → opens the entity's `more-info` dialog.
+
+Example: [examples/stats-card.yaml](examples/stats-card.yaml)
+
+---
+
+## solar-flow-card
+
+Energy flow at a glance: live header (production / consumption / exported) plus a 24-hour SVG chart showing all three. Production is filled (amber), consumption overlaid as a line (blue), exported is filled green where production exceeds demand.
+
+### Config
+
+```yaml
+type: custom:solar-flow-card
+# Everything is optional. Auto-detects Envoy entities.
+production_entity: null     # auto: sensor.envoy_*_current_power_production
+consumption_entity: null    # auto: sensor.envoy_*_current_power_consumption
+history_hours: 24           # window
+bin_minutes: 5              # aggregation step
+```
+
+Header values are live entity states (no averaging gotchas). Chart uses `bin_minutes` averaging for smoothing — exported is computed per-bin as `max(0, prod - cons)` so the math is consistent within the chart.
+
+Example: [examples/flow-card.yaml](examples/flow-card.yaml)
+
+---
+
+## Full dashboard preset
+
+A complete Solar view combining all three cards: [examples/full-dashboard.yaml](examples/full-dashboard.yaml).
+
+```yaml
+title: Solar
+path: solar
+icon: mdi:solar-power
+panel: true
+cards:
+  - type: vertical-stack
+    cards:
+      - type: custom:solar-stats-card
+      - type: custom:solar-flow-card
+      - type: custom:solar-layout-card
+        layout:
+          arrays: [...]   # your JSON
+```
 
 ## Troubleshooting
 
-**Card error: "'layout.arrays' is required"** — you forgot the `layout:` key, or pasted only a sub-tree of the JSON. The top-level object Enphase returns has an `arrays` array; that's what goes under `layout:`.
+**Card error: "'layout.arrays' is required"** — you didn't paste your Enphase JSON, or pasted only a sub-tree. The JSON Enlighten returns has a top-level `arrays` array.
 
-**Panels are all white / no values** — your inverter entity IDs probably don't match the default `sensor.inverter_{serial}` pattern. Check Developer Tools → States, find one of your inverter sensors, then set `inverter_power_entity:` accordingly.
+**Stats card says "No Enphase entities found"** — your Envoy entities don't match `sensor.envoy_*_current_power_production`. Set `metrics:` manually with the entity IDs you have.
 
-**Today · kWh mode shows zeros** — the per-inverter `*_energy_production_today` entities are disabled by default in HA. Settings → Devices → your Envoy → bulk-enable them. Until they have a few minutes of data, totals will be 0.
+**Layout panels are all white** — your inverter entity IDs don't match `sensor.inverter_{serial}`. Override `inverter_power_entity:`.
 
-**Layout looks mirrored or rotated** — the array's `azimuth` field controls rotation. Check the JSON you pasted is from your own system. Each `azimuth` value is in compass degrees (180 = south, 270 = west, etc.).
+**Today · kWh mode shows zeros** — the per-inverter `*_energy_production_today` entities are disabled by default. Bulk-enable them under Settings → Devices → your Envoy → Entities.
 
-**Per-array gaps are too big or panels overlap** — `panel_short` / `panel_long` defaults assume Enphase's standard module-frame units (≈1 cm per unit, panels ~100×198 units). For unusual layouts, tweak those numbers.
+**Layout looks mirrored or rotated** — the `azimuth` field in your JSON controls panel rotation. Re-check what you pasted.
 
 ## Contributing
 
-Issues and PRs welcome. The card is a single self-contained JS file with no build step — clone, edit, hard-refresh.
+Issues and PRs welcome. Single self-contained JS file, no build step — clone, edit, hard-refresh.
 
 ## License
 

@@ -1,0 +1,30 @@
+# A complete /dashboard-solar view stacking all three cards.
+# Drop this under `views:` in a Lovelace dashboard, then replace the layout
+# JSON with your own (see docs/getting-layout-json.md).
+
+title: Solar
+path: solar
+icon: mdi:solar-power
+panel: true
+cards:
+  - type: vertical-stack
+    cards:
+      - type: custom:solar-stats-card
+
+      - type: custom:solar-flow-card
+
+      - type: custom:solar-layout-card
+        layout:
+          # ----- replace everything below with your own Enphase JSON -----
+          system_id: 1234567
+          arrays:
+            - label: MP1
+              x: 183
+              y: 357
+              azimuth: 270
+              modules:
+                - rotation: 0
+                  x: 300
+                  y: 107
+                  inverter: { serial_num: "542546078538" }
+                # ... rest of your modules

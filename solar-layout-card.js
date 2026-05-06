@@ -1,12 +1,16 @@
 /*!
  * solar-layout-card
- * Heat-mapped roof layout for Home Assistant + Enphase microinverter systems.
+ * A small suite of Lovelace cards for Home Assistant + Enphase microinverter systems.
+ * Ships three custom elements:
+ *   - <solar-layout-card>  heat-mapped roof layout
+ *   - <solar-stats-card>   live chip strip (now / today / month / lifetime / savings)
+ *   - <solar-flow-card>    production / consumption / exported flow visualization
  * https://github.com/awolden/solar-layout-card
  * MIT License.
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const DEFAULTS = {
   inverter_power_entity: "sensor.inverter_{serial}",
@@ -815,19 +819,586 @@ class SolarLayoutCard extends HTMLElement {
   }
 }
 
+// ============================================================================
+// shared utilities used by stats + flow cards
+// ============================================================================
+
+// Find first hass.states entity matching a regex.
+function findEnvoyEntity(hass, regex) {
+  if (!hass?.states) return null;
+  for (const id of Object.keys(hass.states)) if (regex.test(id)) return id;
+  return null;
+}
+
+// Read entity state, normalize to {value, unit}. Honors common Enphase units.
+function readState(hass, entityId, opts = {}) {
+  const target = opts.target_unit;  // e.g. "W" or "kWh"
+  const s = hass?.states?.[entityId];
+  if (!s) return { value: null, unit: null, missing: true };
+  const v = parseFloat(s.state);
+  if (Number.isNaN(v)) return { value: null, unit: s.attributes?.unit_of_measurement || null, missing: true };
+  let value = v;
+  const unit = s.attributes?.unit_of_measurement || null;
+  if (target === "W") {
+    if (unit === "kW") value *= 1000;
+    if (unit === "MW") value *= 1_000_000;
+  } else if (target === "kWh") {
+    if (unit === "Wh")  value /= 1000;
+    if (unit === "MWh") value *= 1000;
+  }
+  return { value, unit: target || unit };
+}
+
+// Format a number with smart precision.
+function fmtNumber(value, opts = {}) {
+  if (value == null || Number.isNaN(value)) return "—";
+  const abs = Math.abs(value);
+  if (opts.fixed != null) return value.toFixed(opts.fixed);
+  if (abs >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (abs >= 100)  return value.toFixed(0);
+  if (abs >= 10)   return value.toFixed(1);
+  return value.toFixed(2);
+}
+
+// Auto-pick a friendly unit/scale for energy: kWh < 1000, otherwise MWh.
+function autoScaleEnergy(valueKwh) {
+  if (valueKwh == null) return { value: null, unit: "kWh" };
+  if (Math.abs(valueKwh) >= 1000) return { value: valueKwh / 1000, unit: "MWh" };
+  return { value: valueKwh, unit: "kWh" };
+}
+
+// ============================================================================
+// solar-stats-card
+// Live chip strip. Auto-discovers Envoy stats entities; users can override
+// with a custom `metrics:` list of {entity, label?, icon?, unit?, decimals?}.
+// ============================================================================
+
+const STATS_AUTO = [
+  { key: "now",      label: "Now",       icon: "mdi:solar-power",
+    pattern: /^sensor\.envoy_[^_]+_current_power_production$/, target_unit: "kW", fixed: 2 },
+  { key: "today",    label: "Today",     icon: "mdi:weather-sunny",
+    pattern: /^sensor\.envoy_[^_]+_energy_production_today$/, target_unit: "kWh", fixed: 1 },
+  { key: "seven",    label: "7 days",    icon: "mdi:calendar-week",
+    pattern: /^sensor\.envoy_[^_]+_energy_production_last_seven_days$/, target_unit: "kWh", fixed: 0 },
+  { key: "lifetime", label: "Lifetime",  icon: "mdi:counter",
+    pattern: /^sensor\.envoy_[^_]+_lifetime_energy_production$/, target_unit: "kWh", auto_unit: true },
+];
+
+class SolarStatsCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  static getStubConfig() { return {}; }
+
+  setConfig(config) {
+    this._config = config || {};
+    this._metrics = null;        // resolved on first hass set
+    this.shadowRoot.innerHTML = "";
+    this._built = false;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._metrics) this._resolveMetrics();
+    if (!this._built) this._build();
+    this._render();
+  }
+
+  getCardSize() { return 1; }
+
+  _resolveMetrics() {
+    if (Array.isArray(this._config.metrics) && this._config.metrics.length) {
+      this._metrics = this._config.metrics.map(m => ({ ...m, _custom: true }));
+      return;
+    }
+    // Auto-discover defaults
+    this._metrics = [];
+    for (const def of STATS_AUTO) {
+      const eid = findEnvoyEntity(this._hass, def.pattern);
+      if (eid) this._metrics.push({ ...def, entity: eid });
+    }
+  }
+
+  _build() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        ha-card {
+          padding: 12px 14px;
+          font-family: var(--paper-font-body1_-_font-family, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif);
+        }
+        .strip {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .chip {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px 12px;
+          background: var(--ha-card-background, rgba(255,255,255,0.04));
+          border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 999px;
+          color: var(--primary-text-color, #fff);
+          font-size: 13px;
+          line-height: 1.1;
+          transition: background 0.15s;
+        }
+        .chip:hover {
+          background: rgba(255,255,255,0.08);
+          cursor: pointer;
+        }
+        .chip ha-icon {
+          --mdc-icon-size: 18px;
+          color: var(--icon-color, #ffb300);
+        }
+        .chip .label {
+          color: var(--secondary-text-color, rgba(255,255,255,0.55));
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          font-size: 11px;
+          text-transform: uppercase;
+        }
+        .chip .value {
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+        }
+        .chip .unit {
+          color: var(--secondary-text-color, rgba(255,255,255,0.55));
+          font-size: 11px;
+          font-weight: 600;
+        }
+      </style>
+      <ha-card>
+        <div class="strip" id="strip"></div>
+      </ha-card>
+    `;
+    this._built = true;
+  }
+
+  _render() {
+    const strip = this.shadowRoot.getElementById("strip");
+    if (!strip) return;
+    strip.innerHTML = "";
+    if (!this._metrics?.length) {
+      strip.innerHTML = `<div class="chip" style="color:var(--secondary-text-color)">No Enphase entities found — set <code>metrics:</code> manually.</div>`;
+      return;
+    }
+    for (const m of this._metrics) {
+      const { value, unit } = readState(this._hass, m.entity, { target_unit: m.target_unit || m.unit });
+      let displayValue = value, displayUnit = unit;
+      if (m.auto_unit && unit === "kWh") {
+        const scaled = autoScaleEnergy(value);
+        displayValue = scaled.value;
+        displayUnit = scaled.unit;
+      }
+      const formatted = fmtNumber(displayValue, { fixed: m.fixed });
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      const iconColor = m.color || (m.key === "lifetime" ? "var(--deep-orange-color, #ff7043)" : "#ffb300");
+      chip.innerHTML = `
+        <ha-icon icon="${m.icon || "mdi:flash"}" style="--icon-color:${iconColor}"></ha-icon>
+        <span class="label">${m.label || ""}</span>
+        <span class="value">${formatted}</span>
+        <span class="unit">${displayUnit || ""}</span>
+      `;
+      chip.addEventListener("click", () => this._fireMoreInfo(m.entity));
+      strip.appendChild(chip);
+    }
+  }
+
+  _fireMoreInfo(entityId) {
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent("hass-action", {
+      bubbles: true, composed: true,
+      detail: {
+        config: { entity: entityId, tap_action: { action: "more-info" } },
+        action: "tap",
+      },
+    }));
+  }
+}
+
+// ============================================================================
+// solar-flow-card
+// Live header (3 numbers, always live entity state) + 24h SVG flow chart.
+// Auto-detects Envoy production/consumption entities; computes "exported"
+// client-side as max(0, production - consumption) point-by-point.
+// ============================================================================
+
+const FLOW_DEFAULTS = {
+  production_entity: null,
+  consumption_entity: null,
+  history_hours: 24,
+  bin_minutes: 5,
+};
+
+class SolarFlowCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._historyFetched = false;
+    this._series = { prod: [], cons: [] };
+  }
+
+  static getStubConfig() { return {}; }
+
+  setConfig(config) {
+    this._config = { ...FLOW_DEFAULTS, ...(config || {}) };
+    this.shadowRoot.innerHTML = "";
+    this._built = false;
+    this._historyFetched = false;
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    if (first) this._resolveEntities();
+    if (!this._built) this._build();
+    if (!this._historyFetched && this._hass) {
+      this._historyFetched = true;
+      this._fetchHistory().catch(e => console.error("[solar-flow-card] history fetch failed", e));
+    }
+    this._render();
+  }
+
+  getCardSize() { return 4; }
+
+  _resolveEntities() {
+    if (!this._config.production_entity) {
+      this._config.production_entity = findEnvoyEntity(
+        this._hass, /^sensor\.envoy_[^_]+_current_power_production$/
+      );
+    }
+    if (!this._config.consumption_entity) {
+      this._config.consumption_entity = findEnvoyEntity(
+        this._hass, /^sensor\.envoy_[^_]+_current_power_consumption$/
+      );
+    }
+  }
+
+  _build() {
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        ha-card {
+          padding: 14px 16px 12px;
+          font-family: var(--paper-font-body1_-_font-family, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif);
+          color: var(--primary-text-color, #f5f7fb);
+        }
+        .title {
+          font-size: 11px;
+          letter-spacing: 0.18em;
+          font-weight: 700;
+          color: var(--secondary-text-color, rgba(255,255,255,0.55));
+          text-transform: uppercase;
+          margin-bottom: 10px;
+        }
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .stat .label {
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: var(--secondary-text-color, rgba(255,255,255,0.55));
+          margin-bottom: 4px;
+          display: flex; align-items: center; gap: 6px;
+        }
+        .stat .label .dot {
+          width: 8px; height: 8px; border-radius: 50%;
+        }
+        .stat .num {
+          font-size: 22px;
+          font-weight: 800;
+          font-variant-numeric: tabular-nums;
+          line-height: 1;
+        }
+        .stat .unit {
+          font-size: 12px;
+          color: var(--secondary-text-color, rgba(255,255,255,0.55));
+          font-weight: 600;
+          margin-left: 3px;
+        }
+        .chart {
+          width: 100%;
+          height: 200px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+          border-radius: 8px;
+          position: relative;
+        }
+        .chart svg {
+          width: 100%; height: 100%; display: block;
+        }
+        .axis-line { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+        .axis-tick { fill: var(--secondary-text-color, rgba(255,255,255,0.4)); font-size: 10px; font-weight: 600; }
+        .empty {
+          display: flex; align-items: center; justify-content: center;
+          height: 200px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+      </style>
+      <ha-card>
+        <div class="title" id="title">Energy Flow · 24h</div>
+        <div class="stats">
+          <div class="stat">
+            <div class="label"><span class="dot" style="background:#ffb300"></span>Solar generated</div>
+            <span class="num" id="solarVal">—</span><span class="unit">kW</span>
+          </div>
+          <div class="stat">
+            <div class="label"><span class="dot" style="background:#1e88e5"></span>House consumption</div>
+            <span class="num" id="consVal">—</span><span class="unit">kW</span>
+          </div>
+          <div class="stat">
+            <div class="label"><span class="dot" style="background:#43a047"></span>Exported to grid</div>
+            <span class="num" id="expVal">—</span><span class="unit">kW</span>
+          </div>
+        </div>
+        <div class="chart" id="chartWrap">
+          <svg id="chart" preserveAspectRatio="none" xmlns="${SVG_NS}"></svg>
+        </div>
+      </ha-card>
+    `;
+    this._built = true;
+  }
+
+  async _fetchHistory() {
+    const ents = [this._config.production_entity, this._config.consumption_entity].filter(Boolean);
+    if (!ents.length) return;
+    const start = new Date(Date.now() - this._config.history_hours * 60 * 60 * 1000).toISOString();
+    const result = await this._hass.callWS({
+      type: "history/history_during_period",
+      start_time: start,
+      entity_ids: ents,
+      minimal_response: true,
+      no_attributes: true,
+      significant_changes_only: false,
+    });
+    const unitFor = id => this._hass.states[id]?.attributes?.unit_of_measurement;
+    const toKw = (v, unit) => unit === "W" ? v / 1000 : (unit === "MW" ? v * 1000 : v);
+    for (const eid of ents) {
+      const rows = result[eid] || [];
+      const unit = unitFor(eid);
+      const series = [];
+      for (const r of rows) {
+        const v = parseFloat(r.s);
+        if (Number.isNaN(v)) continue;
+        series.push({ t: (r.lu ?? 0) * 1000, v: toKw(v, unit) });
+      }
+      series.sort((a, b) => a.t - b.t);
+      if (eid === this._config.production_entity)  this._series.prod = series;
+      if (eid === this._config.consumption_entity) this._series.cons = series;
+    }
+    this._render();
+  }
+
+  // Bucket series into bins; for each bin compute aligned prod/cons/export.
+  _buildBins() {
+    const now = Date.now();
+    const start = now - this._config.history_hours * 60 * 60 * 1000;
+    const binMs = this._config.bin_minutes * 60 * 1000;
+    const nBins = Math.ceil((now - start) / binMs);
+    const bins = [];
+    for (let i = 0; i < nBins; i++) {
+      bins.push({ t0: start + i * binMs, t1: start + (i + 1) * binMs, prodSum: 0, prodN: 0, consSum: 0, consN: 0 });
+    }
+    function fill(series, sumKey, nKey) {
+      for (const s of series) {
+        const idx = Math.floor((s.t - start) / binMs);
+        if (idx < 0 || idx >= nBins) continue;
+        bins[idx][sumKey] += s.v;
+        bins[idx][nKey] += 1;
+      }
+    }
+    fill(this._series.prod, "prodSum", "prodN");
+    fill(this._series.cons, "consSum", "consN");
+    // Forward-fill from last known value if a bin has no samples
+    let lastProd = 0, lastCons = 0;
+    for (const b of bins) {
+      b.prod = b.prodN ? b.prodSum / b.prodN : lastProd;
+      b.cons = b.consN ? b.consSum / b.consN : lastCons;
+      b.exp  = Math.max(0, b.prod - b.cons);
+      lastProd = b.prod; lastCons = b.cons;
+    }
+    return bins;
+  }
+
+  _render() {
+    if (!this._built) return;
+    // Live header values
+    const liveProd = readState(this._hass, this._config.production_entity, { target_unit: "kW" });
+    const liveCons = readState(this._hass, this._config.consumption_entity, { target_unit: "kW" });
+    const liveExp = (liveProd.value != null && liveCons.value != null)
+      ? Math.max(0, liveProd.value - liveCons.value)
+      : null;
+    this.shadowRoot.getElementById("solarVal").textContent = fmtNumber(liveProd.value, { fixed: 2 });
+    this.shadowRoot.getElementById("consVal").textContent  = fmtNumber(liveCons.value, { fixed: 2 });
+    this.shadowRoot.getElementById("expVal").textContent   = fmtNumber(liveExp, { fixed: 2 });
+
+    // SVG chart
+    const svg = this.shadowRoot.getElementById("chart");
+    const wrap = this.shadowRoot.getElementById("chartWrap");
+    if (!svg || !wrap) return;
+    const W = wrap.clientWidth || 600;
+    const H = wrap.clientHeight || 200;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = "";
+
+    if (!this._series.prod.length && !this._series.cons.length) {
+      const empty = document.createElementNS(SVG_NS, "text");
+      empty.setAttribute("x", W / 2);
+      empty.setAttribute("y", H / 2);
+      empty.setAttribute("text-anchor", "middle");
+      empty.setAttribute("class", "axis-tick");
+      empty.textContent = "Loading history…";
+      svg.appendChild(empty);
+      return;
+    }
+
+    const bins = this._buildBins();
+    const padL = 32, padR = 8, padT = 10, padB = 18;
+    const innerW = W - padL - padR, innerH = H - padT - padB;
+    let yMax = 0;
+    for (const b of bins) {
+      if (b.prod > yMax) yMax = b.prod;
+      if (b.cons > yMax) yMax = b.cons;
+    }
+    yMax = Math.max(yMax, 1);
+    yMax = Math.ceil(yMax * 1.15 * 4) / 4;  // pad and snap to 0.25 kW
+
+    const xFor = i => padL + (i / (bins.length - 1)) * innerW;
+    const yFor = v => padT + (1 - v / yMax) * innerH;
+
+    // Defs: gradients for each filled area
+    const defs = document.createElementNS(SVG_NS, "defs");
+    defs.innerHTML = `
+      <linearGradient id="solar-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffb300" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#ffb300" stop-opacity="0.05"/>
+      </linearGradient>
+      <linearGradient id="exp-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#43a047" stop-opacity="0.7"/>
+        <stop offset="100%" stop-color="#43a047" stop-opacity="0.1"/>
+      </linearGradient>
+    `;
+    svg.appendChild(defs);
+
+    // Axes
+    for (const t of [0, 0.5, 1]) {
+      const yVal = yMax * (1 - t);
+      const y = padT + t * innerH;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", padL); line.setAttribute("x2", W - padR);
+      line.setAttribute("y1", y); line.setAttribute("y2", y);
+      line.setAttribute("class", "axis-line");
+      svg.appendChild(line);
+      const lbl = document.createElementNS(SVG_NS, "text");
+      lbl.setAttribute("x", padL - 4);
+      lbl.setAttribute("y", y + 3);
+      lbl.setAttribute("text-anchor", "end");
+      lbl.setAttribute("class", "axis-tick");
+      lbl.textContent = yVal.toFixed(yVal < 10 ? 1 : 0);
+      svg.appendChild(lbl);
+    }
+    // X-axis time ticks at 0h, -6h, -12h, -18h, -24h (or proportionally for shorter windows)
+    const hrs = this._config.history_hours;
+    const tickCount = 4;
+    for (let k = 0; k <= tickCount; k++) {
+      const f = k / tickCount;
+      const x = padL + f * innerW;
+      const hoursAgo = Math.round(hrs * (1 - f));
+      const lbl = document.createElementNS(SVG_NS, "text");
+      lbl.setAttribute("x", x);
+      lbl.setAttribute("y", H - 4);
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.setAttribute("class", "axis-tick");
+      lbl.textContent = hoursAgo === 0 ? "now" : `-${hoursAgo}h`;
+      svg.appendChild(lbl);
+    }
+
+    // Build paths
+    const buildLine = (key) => {
+      const parts = [];
+      for (let i = 0; i < bins.length; i++) {
+        const x = xFor(i), y = yFor(bins[i][key]);
+        parts.push(`${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`);
+      }
+      return parts.join(" ");
+    };
+    const buildArea = (key) => {
+      const top = buildLine(key);
+      const x0 = xFor(0), x1 = xFor(bins.length - 1);
+      const y0 = padT + innerH;
+      return `${top} L${x1.toFixed(1)} ${y0} L${x0.toFixed(1)} ${y0} Z`;
+    };
+
+    // Solar generation (filled, amber)
+    const prodArea = document.createElementNS(SVG_NS, "path");
+    prodArea.setAttribute("d", buildArea("prod"));
+    prodArea.setAttribute("fill", "url(#solar-grad)");
+    svg.appendChild(prodArea);
+
+    // Exported (filled, green) — only the surplus
+    const expArea = document.createElementNS(SVG_NS, "path");
+    expArea.setAttribute("d", buildArea("exp"));
+    expArea.setAttribute("fill", "url(#exp-grad)");
+    svg.appendChild(expArea);
+
+    // Consumption line (blue, no fill)
+    const consLine = document.createElementNS(SVG_NS, "path");
+    consLine.setAttribute("d", buildLine("cons"));
+    consLine.setAttribute("fill", "none");
+    consLine.setAttribute("stroke", "#1e88e5");
+    consLine.setAttribute("stroke-width", "2");
+    consLine.setAttribute("stroke-linejoin", "round");
+    consLine.setAttribute("stroke-linecap", "round");
+    svg.appendChild(consLine);
+  }
+}
+
+// ============================================================================
+// register all three custom elements
+// ============================================================================
+
 customElements.define("solar-layout-card", SolarLayoutCard);
+customElements.define("solar-stats-card", SolarStatsCard);
+customElements.define("solar-flow-card", SolarFlowCard);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "solar-layout-card",
-  name: "Solar Layout",
-  description: "Heat-mapped roof layout for Enphase microinverter systems. Live W and daily kWh, with time-travel slider and pan/zoom.",
-  preview: false,
-  documentationURL: "https://github.com/awolden/solar-layout-card",
-});
+window.customCards.push(
+  {
+    type: "solar-layout-card",
+    name: "Solar Layout",
+    description: "Heat-mapped roof layout for Enphase microinverter systems. Live W and daily kWh, with time-travel slider and pan/zoom.",
+    preview: false,
+    documentationURL: "https://github.com/awolden/solar-layout-card",
+  },
+  {
+    type: "solar-stats-card",
+    name: "Solar Stats",
+    description: "Live Enphase metrics chip strip — now / today / 7-day / lifetime. Auto-discovers entities.",
+    preview: false,
+    documentationURL: "https://github.com/awolden/solar-layout-card#solar-stats-card",
+  },
+  {
+    type: "solar-flow-card",
+    name: "Solar Flow",
+    description: "Energy flow visualization — solar generated vs consumption vs exported, 24h chart with live header.",
+    preview: false,
+    documentationURL: "https://github.com/awolden/solar-layout-card#solar-flow-card",
+  }
+);
 
 console.info(
-  `%c SOLAR-LAYOUT-CARD %c v${VERSION} `,
+  `%c SOLAR-CARDS %c v${VERSION} `,
   "color:#1a1010;background:linear-gradient(135deg,#ff8a4c,#ff3a2c);font-weight:700;border-radius:3px 0 0 3px;padding:2px 6px",
   "color:#fff;background:#11141d;font-weight:600;border-radius:0 3px 3px 0;padding:2px 6px"
 );

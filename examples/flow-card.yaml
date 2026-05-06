@@ -1,0 +1,11 @@
+# solar-flow-card — zero-config (auto-discovers Envoy production / consumption)
+type: custom:solar-flow-card
+
+# ---
+# Or override entities and tweak window:
+#
+# type: custom:solar-flow-card
+# production_entity:  sensor.envoy_482518016187_current_power_production
+# consumption_entity: sensor.envoy_482518016187_current_power_consumption
+# history_hours: 24
+# bin_minutes: 5
