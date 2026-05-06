@@ -1,0 +1,6 @@
+# Drop screenshot PNGs in this directory and reference them from README.md.
+# Suggested:
+#   solar-layout-card.png  — the heatmap view, full panel
+#   solar-stats-card.png   — the chip strip
+#   solar-flow-card.png    — the 24h chart
+#   full-dashboard.png     — all three composed
