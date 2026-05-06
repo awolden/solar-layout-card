@@ -10,7 +10,7 @@
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 const DEFAULTS = {
   inverter_power_entity: "sensor.inverter_{serial}",
@@ -339,7 +339,25 @@ class SolarLayoutCard extends HTMLElement {
           overflow: hidden;
           aspect-ratio: ${VBW} / ${VBH};
           width: 100%;
+          touch-action: pan-y pan-x;  /* let page scroll on single-finger touch */
         }
+        .zoom-hint {
+          position: absolute;
+          bottom: 10px; left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0,0,0,0.7);
+          color: #fff;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 11px;
+          letter-spacing: 0.06em;
+          font-weight: 600;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.25s ease;
+          backdrop-filter: blur(8px);
+        }
+        .zoom-hint.visible { opacity: 1; }
         .stage svg {
           width: 100%; height: 100%; display: block;
           cursor: grab; user-select: none;
@@ -400,6 +418,7 @@ class SolarLayoutCard extends HTMLElement {
 
         <div class="stage">
           <svg id="stage" xmlns="${SVG_NS}" viewBox="${VBX} ${VBY} ${VBW} ${VBH}"></svg>
+          <div class="zoom-hint" id="zoomHint">⌘ / Ctrl + scroll to zoom</div>
         </div>
 
         <footer>
@@ -414,6 +433,7 @@ class SolarLayoutCard extends HTMLElement {
     this._readout = this.shadowRoot.getElementById("timeReadout");
     this._liveBtn = this.shadowRoot.getElementById("liveBtn");
     this._resetBtn = this.shadowRoot.getElementById("resetBtn");
+    this._hintEl = this.shadowRoot.getElementById("zoomHint");
 
     this.shadowRoot.querySelectorAll(".mode").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -454,7 +474,14 @@ class SolarLayoutCard extends HTMLElement {
   }
 
   _installPanZoom() {
+    // Wheel zoom requires Ctrl/Cmd modifier so plain scrolling passes through
+    // to the page when the mouse is over the canvas.
     this._stage.addEventListener("wheel", (e) => {
+      if (!(e.ctrlKey || e.metaKey)) {
+        // Show a brief hint that zoom needs the modifier
+        this._showHint();
+        return;
+      }
       e.preventDefault();
       const rect = this._stage.getBoundingClientRect();
       const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -487,47 +514,47 @@ class SolarLayoutCard extends HTMLElement {
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", () => { dragging = false; });
 
-    // Touch pinch-to-zoom + drag-to-pan
+    // Touch: only two-finger pinch interacts with the canvas.
+    // Single-finger touchmove must pass through so the page can scroll.
     let touchStart = null;
     this._stage.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 1) {
-        touchStart = { type: "pan", x: e.touches[0].clientX, y: e.touches[0].clientY, view: { ...this._view } };
-      } else if (e.touches.length === 2) {
+      if (e.touches.length === 2) {
         const [a, b] = e.touches;
         const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
         const cx = (a.clientX + b.clientX) / 2;
         const cy = (a.clientY + b.clientY) / 2;
-        touchStart = { type: "pinch", dist, cx, cy, view: { ...this._view } };
+        touchStart = { dist, cx, cy, view: { ...this._view } };
+      } else {
+        touchStart = null;
       }
     }, { passive: true });
     this._stage.addEventListener("touchmove", (e) => {
-      if (!touchStart) return;
+      if (!touchStart || e.touches.length !== 2) return;
       e.preventDefault();
       const rect = this._stage.getBoundingClientRect();
-      if (touchStart.type === "pan" && e.touches.length === 1) {
-        const dx = (e.touches[0].clientX - touchStart.x) / rect.width * touchStart.view.w;
-        const dy = (e.touches[0].clientY - touchStart.y) / rect.height * touchStart.view.h;
-        this._view.x = touchStart.view.x - dx;
-        this._view.y = touchStart.view.y - dy;
-        this._applyView();
-      } else if (touchStart.type === "pinch" && e.touches.length === 2) {
-        const [a, b] = e.touches;
-        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        const factor = touchStart.dist / dist;
-        const newW = touchStart.view.w * factor;
-        const newH = touchStart.view.h * factor;
-        const minW = this._VB.w * 0.05, maxW = this._VB.w * 4;
-        if (newW < minW || newW > maxW) return;
-        const mx = touchStart.cx - rect.left, my = touchStart.cy - rect.top;
-        const sx = touchStart.view.x + (mx / rect.width) * touchStart.view.w;
-        const sy = touchStart.view.y + (my / rect.height) * touchStart.view.h;
-        this._view.x = sx - (mx / rect.width) * newW;
-        this._view.y = sy - (my / rect.height) * newH;
-        this._view.w = newW; this._view.h = newH;
-        this._applyView();
-      }
+      const [a, b] = e.touches;
+      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const factor = touchStart.dist / dist;
+      const newW = touchStart.view.w * factor;
+      const newH = touchStart.view.h * factor;
+      const minW = this._VB.w * 0.05, maxW = this._VB.w * 4;
+      if (newW < minW || newW > maxW) return;
+      const mx = touchStart.cx - rect.left, my = touchStart.cy - rect.top;
+      const sx = touchStart.view.x + (mx / rect.width) * touchStart.view.w;
+      const sy = touchStart.view.y + (my / rect.height) * touchStart.view.h;
+      this._view.x = sx - (mx / rect.width) * newW;
+      this._view.y = sy - (my / rect.height) * newH;
+      this._view.w = newW; this._view.h = newH;
+      this._applyView();
     }, { passive: false });
     this._stage.addEventListener("touchend", () => { touchStart = null; });
+  }
+
+  _showHint() {
+    if (!this._hintEl) return;
+    this._hintEl.classList.add("visible");
+    clearTimeout(this._hintTimer);
+    this._hintTimer = setTimeout(() => this._hintEl?.classList.remove("visible"), 1500);
   }
 
   _applyView() {
@@ -875,18 +902,19 @@ function autoScaleEnergy(valueKwh) {
 
 // "pattern" entries are looked up directly in hass.states.
 // "value" entries are derived: "consumption", "exported", "imported", "self_consumed".
+// "group" tags chips so a divider can be inserted between groups in the strip.
 const STATS_AUTO = [
-  { key: "now",      label: "Now",       icon: "mdi:solar-power",            color: "#ffb300",
+  { key: "now",      group: "live",    label: "Now",      icon: "mdi:solar-power",            color: "#ffb300",
     pattern: /^sensor\.envoy_[^_]+_current_power_production$/, target_unit: "kW", fixed: 2 },
-  { key: "house",    label: "House",     icon: "mdi:home-lightning-bolt",    color: "#1e88e5",
+  { key: "house",    group: "live",    label: "House",    icon: "mdi:home-lightning-bolt",    color: "#1e88e5",
     value: "consumption", target_unit: "kW", fixed: 2 },
-  { key: "export",   label: "Export",    icon: "mdi:transmission-tower-export", color: "#43a047",
+  { key: "export",   group: "live",    label: "Export",   icon: "mdi:transmission-tower-export", color: "#43a047",
     value: "exported", target_unit: "kW", fixed: 2 },
-  { key: "today",    label: "Today",     icon: "mdi:weather-sunny",
+  { key: "today",    group: "history", label: "Today",    icon: "mdi:weather-sunny",
     pattern: /^sensor\.envoy_[^_]+_energy_production_today$/, target_unit: "kWh", fixed: 1 },
-  { key: "seven",    label: "7 days",    icon: "mdi:calendar-week",
+  { key: "seven",    group: "history", label: "7 days",   icon: "mdi:calendar-week",
     pattern: /^sensor\.envoy_[^_]+_energy_production_last_seven_days$/, target_unit: "kWh", fixed: 0 },
-  { key: "lifetime", label: "Lifetime",  icon: "mdi:counter",
+  { key: "lifetime", group: "history", label: "Lifetime", icon: "mdi:counter",
     pattern: /^sensor\.envoy_[^_]+_lifetime_energy_production$/, target_unit: "kWh", auto_unit: true },
 ];
 
@@ -1019,6 +1047,12 @@ class SolarStatsCard extends HTMLElement {
           font-size: 11px;
           font-weight: 600;
         }
+        .divider {
+          width: 1px;
+          align-self: stretch;
+          background: rgba(255,255,255,0.12);
+          margin: 4px 4px;
+        }
       </style>
       <ha-card>
         <div class="strip" id="strip"></div>
@@ -1035,7 +1069,16 @@ class SolarStatsCard extends HTMLElement {
       strip.innerHTML = `<div class="chip" style="color:var(--secondary-text-color)">No Enphase entities found — set <code>metrics:</code> manually.</div>`;
       return;
     }
+    let lastGroup = null;
     for (const m of this._metrics) {
+      // Visual divider between groups (e.g. live vs history)
+      if (m.group && lastGroup !== null && m.group !== lastGroup) {
+        const divider = document.createElement("div");
+        divider.className = "divider";
+        strip.appendChild(divider);
+      }
+      if (m.group) lastGroup = m.group;
+
       const { value, unit } = this._readMetric(m);
       let displayValue = value, displayUnit = unit;
       if (m.auto_unit && unit === "kWh") {
