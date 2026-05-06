@@ -1,0 +1,56 @@
+# Drop this card into any Lovelace view. The "layout" block below is a
+# trimmed example — replace it with the JSON you copied from Enlighten.
+#
+# See: ../docs/getting-layout-json.md
+type: custom:solar-layout-card
+layout:
+  system_id: 1234567
+  rotation: 0
+  dimensions: { x_min: -26, x_max: 1120, y_min: -56, y_max: 918 }
+  arrays:
+    - array_id: 8950494
+      label: MP1
+      x: 183
+      y: 357
+      azimuth: 270  # west-facing
+      modules:
+        - module_id: 99515279
+          rotation: 0
+          x: 300
+          y: 107
+          inverter: { inverter_id: 123953859, serial_num: "542546078538" }
+        - module_id: 99515280
+          rotation: 0
+          x: 200
+          y: 109
+          inverter: { inverter_id: 123953858, serial_num: "542546079185" }
+        - module_id: 99515281
+          rotation: 0
+          x: 100
+          y: 109
+          inverter: { inverter_id: 123953857, serial_num: "542546078523" }
+        # ... add the rest of your modules
+    - array_id: 8950495
+      label: MP2
+      x: 1011
+      y: 127
+      azimuth: 180  # south-facing
+      modules:
+        - module_id: 99515290
+          rotation: 0
+          x: 59
+          y: 0
+          inverter: { inverter_id: 123953836, serial_num: "542545072935" }
+        - module_id: 99515291
+          rotation: 0
+          x: -40
+          y: 0
+          inverter: { inverter_id: 123953837, serial_num: "542510085949" }
+
+# Optional overrides — the defaults work for stock Enphase HA integration setups.
+# inverter_power_entity: "sensor.inverter_{serial}"
+# inverter_kwh_entity:   "sensor.inverter_{serial}_energy_production_today"
+# max_w: 460
+# max_kwh_per_day: 3.0
+# history_hours: 12
+# history_days: 14
