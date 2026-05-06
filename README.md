@@ -88,9 +88,13 @@ type: custom:solar-stats-card
 
 Auto-discovers and renders chips for:
 - **Now** (`sensor.envoy_*_current_power_production`, kW)
+- **House** (`sensor.envoy_*_current_power_consumption`, kW)
+- **Export** (computed: `max(0, production − consumption)`, kW)
 - **Today** (`sensor.envoy_*_energy_production_today`, kWh)
 - **7 days** (`sensor.envoy_*_energy_production_last_seven_days`, kWh)
 - **Lifetime** (`sensor.envoy_*_lifetime_energy_production`, auto-scales kWh ↔ MWh)
+
+`House` and `Export` only appear if both production and consumption sensors are detected.
 
 ### Custom metrics
 
@@ -114,7 +118,11 @@ metrics:
     color: "#43a047"
 ```
 
-Each metric supports: `entity` (required), `label`, `icon`, `target_unit` (W / kW / Wh / kWh / MWh), `fixed` (decimal places), `auto_unit` (true to auto-scale kWh→MWh), `color` (icon color).
+Each metric supports either:
+- `entity:` — read state from a specific entity, OR
+- `value:` — derived: `production`, `consumption`, `exported`, `imported`, `self_consumed` (auto-computed from the auto-detected Envoy entities)
+
+Plus: `label`, `icon`, `target_unit` (W / kW / Wh / kWh / MWh), `fixed` (decimal places), `auto_unit` (true to auto-scale kWh→MWh), `color` (icon color).
 
 Tap any chip → opens the entity's `more-info` dialog.
 
@@ -135,9 +143,13 @@ production_entity: null     # auto: sensor.envoy_*_current_power_production
 consumption_entity: null    # auto: sensor.envoy_*_current_power_consumption
 history_hours: 24           # window
 bin_minutes: 5              # aggregation step
+show_stats: true            # set false to hide the live header (chart only)
+show_title: true            # set false to hide the small "Energy Flow · 24h" caption
 ```
 
 Header values are live entity states (no averaging gotchas). Chart uses `bin_minutes` averaging for smoothing — exported is computed per-bin as `max(0, prod - cons)` so the math is consistent within the chart.
+
+If you're already using `solar-stats-card` (which has its own live `Solar / House / Export` chips by default), pair them and set `show_stats: false` on the flow card to avoid duplication — that gives you one row of chips on top and the chart full-width below.
 
 Example: [examples/flow-card.yaml](examples/flow-card.yaml)
 

@@ -9,10 +9,15 @@ panel: true
 cards:
   - type: vertical-stack
     cards:
+      # Chip strip with live metrics (Now / House / Export / Today / 7d / Lifetime)
       - type: custom:solar-stats-card
 
+      # Flow chart full-width — header chips above already cover the live values
       - type: custom:solar-flow-card
+        show_stats: false
+        show_title: false
 
+      # Roof layout
       - type: custom:solar-layout-card
         layout:
           # ----- replace everything below with your own Enphase JSON -----

@@ -10,7 +10,7 @@
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const DEFAULTS = {
   inverter_power_entity: "sensor.inverter_{serial}",
@@ -873,9 +873,15 @@ function autoScaleEnergy(valueKwh) {
 // with a custom `metrics:` list of {entity, label?, icon?, unit?, decimals?}.
 // ============================================================================
 
+// "pattern" entries are looked up directly in hass.states.
+// "value" entries are derived: "consumption", "exported", "imported", "self_consumed".
 const STATS_AUTO = [
-  { key: "now",      label: "Now",       icon: "mdi:solar-power",
+  { key: "now",      label: "Now",       icon: "mdi:solar-power",            color: "#ffb300",
     pattern: /^sensor\.envoy_[^_]+_current_power_production$/, target_unit: "kW", fixed: 2 },
+  { key: "house",    label: "House",     icon: "mdi:home-lightning-bolt",    color: "#1e88e5",
+    value: "consumption", target_unit: "kW", fixed: 2 },
+  { key: "export",   label: "Export",    icon: "mdi:transmission-tower-export", color: "#43a047",
+    value: "exported", target_unit: "kW", fixed: 2 },
   { key: "today",    label: "Today",     icon: "mdi:weather-sunny",
     pattern: /^sensor\.envoy_[^_]+_energy_production_today$/, target_unit: "kWh", fixed: 1 },
   { key: "seven",    label: "7 days",    icon: "mdi:calendar-week",
@@ -883,6 +889,9 @@ const STATS_AUTO = [
   { key: "lifetime", label: "Lifetime",  icon: "mdi:counter",
     pattern: /^sensor\.envoy_[^_]+_lifetime_energy_production$/, target_unit: "kWh", auto_unit: true },
 ];
+
+const ENVOY_PROD_PATTERN = /^sensor\.envoy_[^_]+_current_power_production$/;
+const ENVOY_CONS_PATTERN = /^sensor\.envoy_[^_]+_current_power_consumption$/;
 
 class SolarStatsCard extends HTMLElement {
   constructor() {
@@ -909,6 +918,12 @@ class SolarStatsCard extends HTMLElement {
   getCardSize() { return 1; }
 
   _resolveMetrics() {
+    // Auto-detect Envoy production / consumption for derived "value:" metrics.
+    this._prodE = this._config.production_entity
+      || findEnvoyEntity(this._hass, ENVOY_PROD_PATTERN);
+    this._consE = this._config.consumption_entity
+      || findEnvoyEntity(this._hass, ENVOY_CONS_PATTERN);
+
     if (Array.isArray(this._config.metrics) && this._config.metrics.length) {
       this._metrics = this._config.metrics.map(m => ({ ...m, _custom: true }));
       return;
@@ -916,9 +931,42 @@ class SolarStatsCard extends HTMLElement {
     // Auto-discover defaults
     this._metrics = [];
     for (const def of STATS_AUTO) {
-      const eid = findEnvoyEntity(this._hass, def.pattern);
-      if (eid) this._metrics.push({ ...def, entity: eid });
+      if (def.pattern) {
+        const eid = findEnvoyEntity(this._hass, def.pattern);
+        if (eid) this._metrics.push({ ...def, entity: eid });
+      } else if (def.value) {
+        // Skip derived metric if we don't have the source entities
+        if (def.value === "consumption" && this._consE) this._metrics.push({ ...def });
+        else if ((def.value === "exported" || def.value === "imported" || def.value === "self_consumed")
+                 && this._prodE && this._consE) this._metrics.push({ ...def });
+        else if (def.value === "production" && this._prodE) this._metrics.push({ ...def });
+      }
     }
+  }
+
+  _readMetric(m) {
+    if (m.entity) {
+      return readState(this._hass, m.entity, { target_unit: m.target_unit || m.unit });
+    }
+    if (m.value) {
+      const prod = this._prodE ? readState(this._hass, this._prodE, { target_unit: "kW" }).value : null;
+      const cons = this._consE ? readState(this._hass, this._consE, { target_unit: "kW" }).value : null;
+      let v = null;
+      if (m.value === "production")    v = prod;
+      else if (m.value === "consumption") v = cons;
+      else if (m.value === "exported"  && prod != null && cons != null) v = Math.max(0, prod - cons);
+      else if (m.value === "imported"  && prod != null && cons != null) v = Math.max(0, cons - prod);
+      else if (m.value === "self_consumed" && prod != null && cons != null) v = Math.min(prod, cons);
+      return { value: v, unit: m.target_unit || "kW" };
+    }
+    return { value: null, unit: null, missing: true };
+  }
+
+  _entityForMetric(m) {
+    if (m.entity) return m.entity;
+    if (m.value === "production" || m.value === "exported" || m.value === "self_consumed") return this._prodE;
+    if (m.value === "consumption" || m.value === "imported") return this._consE;
+    return null;
   }
 
   _build() {
@@ -988,7 +1036,7 @@ class SolarStatsCard extends HTMLElement {
       return;
     }
     for (const m of this._metrics) {
-      const { value, unit } = readState(this._hass, m.entity, { target_unit: m.target_unit || m.unit });
+      const { value, unit } = this._readMetric(m);
       let displayValue = value, displayUnit = unit;
       if (m.auto_unit && unit === "kWh") {
         const scaled = autoScaleEnergy(value);
@@ -1005,7 +1053,9 @@ class SolarStatsCard extends HTMLElement {
         <span class="value">${formatted}</span>
         <span class="unit">${displayUnit || ""}</span>
       `;
-      chip.addEventListener("click", () => this._fireMoreInfo(m.entity));
+      const linkEntity = this._entityForMetric(m);
+      if (linkEntity) chip.addEventListener("click", () => this._fireMoreInfo(linkEntity));
+      else chip.style.cursor = "default";
       strip.appendChild(chip);
     }
   }
@@ -1034,6 +1084,8 @@ const FLOW_DEFAULTS = {
   consumption_entity: null,
   history_hours: 24,
   bin_minutes: 5,
+  show_stats: true,   // hide the live header (3 numbers) when paired with solar-stats-card
+  show_title: true,   // hide the small "Energy Flow · 24h" caption
 };
 
 class SolarFlowCard extends HTMLElement {
@@ -1147,7 +1199,8 @@ class SolarFlowCard extends HTMLElement {
         }
       </style>
       <ha-card>
-        <div class="title" id="title">Energy Flow · 24h</div>
+        ${this._config.show_title ? `<div class="title" id="title">Energy Flow · ${this._config.history_hours}h</div>` : ""}
+        ${this._config.show_stats ? `
         <div class="stats">
           <div class="stat">
             <div class="label"><span class="dot" style="background:#ffb300"></span>Solar generated</div>
@@ -1162,6 +1215,7 @@ class SolarFlowCard extends HTMLElement {
             <span class="num" id="expVal">—</span><span class="unit">kW</span>
           </div>
         </div>
+        ` : ""}
         <div class="chart" id="chartWrap">
           <svg id="chart" preserveAspectRatio="none" xmlns="${SVG_NS}"></svg>
         </div>
@@ -1233,15 +1287,17 @@ class SolarFlowCard extends HTMLElement {
 
   _render() {
     if (!this._built) return;
-    // Live header values
-    const liveProd = readState(this._hass, this._config.production_entity, { target_unit: "kW" });
-    const liveCons = readState(this._hass, this._config.consumption_entity, { target_unit: "kW" });
-    const liveExp = (liveProd.value != null && liveCons.value != null)
-      ? Math.max(0, liveProd.value - liveCons.value)
-      : null;
-    this.shadowRoot.getElementById("solarVal").textContent = fmtNumber(liveProd.value, { fixed: 2 });
-    this.shadowRoot.getElementById("consVal").textContent  = fmtNumber(liveCons.value, { fixed: 2 });
-    this.shadowRoot.getElementById("expVal").textContent   = fmtNumber(liveExp, { fixed: 2 });
+    // Live header values (only if shown)
+    if (this._config.show_stats) {
+      const liveProd = readState(this._hass, this._config.production_entity, { target_unit: "kW" });
+      const liveCons = readState(this._hass, this._config.consumption_entity, { target_unit: "kW" });
+      const liveExp = (liveProd.value != null && liveCons.value != null)
+        ? Math.max(0, liveProd.value - liveCons.value)
+        : null;
+      this.shadowRoot.getElementById("solarVal").textContent = fmtNumber(liveProd.value, { fixed: 2 });
+      this.shadowRoot.getElementById("consVal").textContent  = fmtNumber(liveCons.value, { fixed: 2 });
+      this.shadowRoot.getElementById("expVal").textContent   = fmtNumber(liveExp, { fixed: 2 });
+    }
 
     // SVG chart
     const svg = this.shadowRoot.getElementById("chart");
