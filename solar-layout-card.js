@@ -10,7 +10,7 @@
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const DEFAULTS = {
   inverter_power_entity: "sensor.inverter_{serial}",
@@ -107,18 +107,16 @@ class SolarLayoutCard extends HTMLElement {
 
   static getStubConfig() {
     return {
-      layout: {
-        arrays: [
-          {
-            label: "Example",
-            x: 0, y: 0, azimuth: 180,
-            modules: [
-              { rotation: 0, x: 0, y: 0,   inverter: { serial_num: "REPLACE_ME_1" } },
-              { rotation: 0, x: 100, y: 0, inverter: { serial_num: "REPLACE_ME_2" } },
-            ],
-          },
-        ],
-      },
+      arrays: [
+        {
+          label: "Example",
+          x: 0, y: 0, azimuth: 180,
+          modules: [
+            { rotation: 0, x: 0, y: 0,   inverter: { serial_num: "REPLACE_ME_1" } },
+            { rotation: 0, x: 100, y: 0, inverter: { serial_num: "REPLACE_ME_2" } },
+          ],
+        },
+      ],
     };
   }
 
@@ -126,11 +124,26 @@ class SolarLayoutCard extends HTMLElement {
     if (!config || typeof config !== "object") {
       throw new Error("solar-layout-card: config must be an object");
     }
-    if (!config.layout || !Array.isArray(config.layout.arrays) || !config.layout.arrays.length) {
-      throw new Error("solar-layout-card: 'layout.arrays' is required (paste your Enphase array JSON)");
+    // Accept any of three shapes:
+    //   1) arrays:  [...]                      ← shortcut, just the arrays list
+    //   2) layout:  {arrays: [...], ...}       ← full Enphase JSON object
+    //   3) layout:  [...]                      ← arrays directly under "layout:"
+    let layout = null;
+    if (Array.isArray(config.arrays)) {
+      layout = { arrays: config.arrays };
+    } else if (Array.isArray(config.layout)) {
+      layout = { arrays: config.layout };
+    } else if (config.layout && Array.isArray(config.layout.arrays)) {
+      layout = config.layout;
     }
-    this._config = { ...DEFAULTS, ...config };
-    this._panels = buildPanels(this._config.layout, this._config);
+    if (!layout || !layout.arrays.length) {
+      throw new Error(
+        "solar-layout-card: missing 'arrays' (paste your Enphase array JSON's `arrays` value, " +
+        "or paste the whole JSON object under `layout:`)."
+      );
+    }
+    this._config = { ...DEFAULTS, ...config, layout };
+    this._panels = buildPanels(layout, this._config);
     if (!this._panels.length) {
       throw new Error("solar-layout-card: layout has no modules with serial numbers");
     }

@@ -84,6 +84,16 @@ Heat-mapped roof layout. Each panel is colored by its current W output (or today
 
 Coordinates only live in Enphase **cloud** (Enlighten). Grab the JSON from the browser:
 
+**Easy mode — paste this snippet** into the DevTools console while signed into <https://enlighten.enphaseenergy.com>, then navigate to your system's Array view. The snippet auto-detects the layout response and copies it to your clipboard, ready to paste under `arrays:` in the card config:
+
+```js
+// docs/devtools-snippet.js — full source in the repo
+(()=>{const o=window.fetch;let c=false;window.fetch=async function(...a){const r=await o.apply(this,a);if(c)return r;try{const d=await r.clone().json();if(d?.arrays?.length&&d.arrays[0].modules){c=true;await navigator.clipboard.writeText(JSON.stringify(d.arrays,null,2));console.log("%c✅ Captured solar layout JSON","color:#43a047;font-weight:700;font-size:14px");window.fetch=o;}}catch(_){}return r;};console.log("%c👀 Watching for layout JSON…","color:#1e88e5;font-weight:600");})();
+```
+
+The full annotated version is at [`docs/devtools-snippet.js`](docs/devtools-snippet.js); it's tested in [`docs/test-snippet.spec.mjs`](docs/test-snippet.spec.mjs).
+
+**Manual mode**:
 1. Sign in to <https://enlighten.enphaseenergy.com/> as the system owner
 2. Navigate to your system's **Array** view
 3. DevTools → **Network** → filter `XHR / Fetch` → reload
@@ -102,10 +112,30 @@ Full walkthrough with screenshots: [docs/getting-layout-json.md](docs/getting-la
 
 ### Config
 
+Minimum config — paste your captured `arrays` array directly:
+
 ```yaml
 type: custom:solar-layout-card
-layout:
-  arrays: [...]   # paste the JSON you captured
+arrays:
+  - label: MP1
+    x: 183
+    y: 357
+    azimuth: 270
+    modules:
+      - rotation: 0
+        x: 300
+        y: 107
+        inverter: { serial_num: "542546078538" }
+      # ... rest of your modules
+```
+
+(You can also nest the whole Enphase JSON object under `layout:` if you'd rather paste it verbatim — `arrays:` is just a shortcut that skips the wrapper.)
+
+Full schema with defaults:
+
+```yaml
+type: custom:solar-layout-card
+arrays: [...]                 # required — your captured array layout
 
 # Everything below is optional.
 inverter_power_entity: "sensor.inverter_{serial}"

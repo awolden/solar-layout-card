@@ -2,6 +2,23 @@
 
 This card needs to know which serial sits where on your roof. Enphase only stores that mapping in **Enlighten** (their cloud). Neither the local Envoy nor the v4 Developer API exposes panel positions, so you'll grab the JSON straight from Enlighten's web UI.
 
+## Easy mode (recommended)
+
+Use [`devtools-snippet.js`](devtools-snippet.js):
+
+1. Sign in to <https://enlighten.enphaseenergy.com> as the **system owner**
+2. Open browser DevTools → **Console** tab
+3. Paste the contents of [`devtools-snippet.js`](devtools-snippet.js) and hit Enter
+4. Navigate to your system's **Array** view (or refresh if already there)
+5. The console logs `✅ Captured solar layout JSON` and the data is on your clipboard
+6. Paste it under `arrays:` in your card config — done
+
+The snippet patches `window.fetch`, watches for any response that looks like the Enphase array layout (an object with `arrays[].modules[]`), and copies just the `arrays` value as JSON. It auto-restores `window.fetch` once captured.
+
+If the snippet doesn't trigger, fall through to the manual mode below — the endpoint URL or shape may have changed in a future Enlighten update.
+
+## Manual mode
+
 It takes about a minute.
 
 ## Step by step
