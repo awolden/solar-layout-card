@@ -1,5 +1,13 @@
 # Solar Cards
 
+> Heat-mapped Enphase roof, live stats, and energy-flow chart — three Lovelace cards in one HACS install.
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge&logo=home-assistant)](https://github.com/hacs/integration)
+[![GitHub release](https://img.shields.io/github/v/release/awolden/solar-layout-card?style=for-the-badge)](https://github.com/awolden/solar-layout-card/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=awolden&repository=solar-layout-card&category=plugin)
+
 A small suite of Lovelace cards for [Home Assistant](https://www.home-assistant.io/) + [Enphase](https://enphase.com/) microinverter systems. One HACS install registers three custom elements:
 
 | Card | What it shows |
@@ -53,13 +61,14 @@ A small suite of Lovelace cards for [Home Assistant](https://www.home-assistant.
 
 ### HACS (recommended)
 
-Until the cards are in the HACS default list:
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=awolden&repository=solar-layout-card&category=plugin)
 
+Click the button above (it'll prompt your HA instance to add this repo to HACS as a Dashboard plugin), then **Download**. The Lovelace resource auto-registers for storage-mode dashboards — no restart needed.
+
+Manual route, if the button doesn't work:
 1. HACS sidebar → menu (⋮) → **Custom repositories**
 2. URL: `https://github.com/awolden/solar-layout-card` · Type: **Dashboard**
 3. Click the entry, then **Download**
-
-The Lovelace resource auto-registers for storage-mode dashboards. No restart needed.
 
 ### Manual
 
