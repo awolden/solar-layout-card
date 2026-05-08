@@ -2,20 +2,40 @@
 
 This card needs to know which serial sits where on your roof. Enphase only stores that mapping in **Enlighten** (their cloud). Neither the local Envoy nor the v4 Developer API exposes panel positions, so you'll grab the JSON straight from Enlighten's web UI.
 
-## Easy mode (recommended)
+## Easy mode (recommended) — one-click bookmarklet
 
-Use [`devtools-snippet.js`](devtools-snippet.js):
+The repo ships a bookmarklet that captures the JSON for you in a single click. No DevTools, no console.
 
-1. Sign in to <https://enlighten.enphaseenergy.com> as the **system owner**
-2. Navigate to your system's **Array** view (URL contains `/web/<id>/array`)
-3. Open browser DevTools → **Console** tab
-4. Paste the contents of [`devtools-snippet.js`](devtools-snippet.js) and hit Enter
-5. Console logs `✅ Captured solar layout JSON` and the data is on your clipboard
-6. Paste it under `arrays:` in your card config — done
+**One-time setup:**
+1. Create a new bookmark in your browser, name it **"Solar layout"** (or whatever).
+2. For the URL: open [`bookmarklet.txt`](bookmarklet.txt), copy the entire contents (one giant `javascript:…` URL), and paste it as the bookmark's URL. *Tip:* In Chrome, right-click the bookmarks bar → Add page → paste in the URL field.
 
-The snippet uses the [Performance API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API) to list every resource the array page already loaded, sorts URLs that mention `array`/`layout`/`panel`/`module` to the front, then refetches each (using your existing session cookies) until it finds one whose JSON has the expected `arrays[].modules[]` shape. It copies only the `arrays` value, formatted, to the clipboard.
+**Each capture:**
+1. Sign in to <https://enlighten.enphaseenergy.com> as the **system owner**.
+2. Navigate to your system's **Array** view (URL contains `/web/<system_id>/array`).
+3. Click your "Solar layout" bookmark.
+4. A panel pops up on the page with the JSON in a textarea + **Copy** and **Download .json** buttons.
+5. Paste under `arrays:` in your card config — done.
 
-One-shot — no event listeners, no need to refresh. If it can't find anything, you're probably not on the array view yet, or the URL pattern has changed in a future Enlighten update; fall through to the manual mode below.
+### How it works
+
+- Reads `system_id` from the page URL (`/web/<id>/array`)
+- Tries the known Enlighten layout endpoints, most-specific first:
+  - `/pv/systems/<id>/array_layout_x.json`
+  - `/pv/systems/<id>/array_layout.json`
+  - `/web/<id>/array.json`
+- Falls back to scanning the page's loaded resources (Performance API) for any URL that looks like layout-y JSON
+- Refetches the matching endpoint with your existing session cookies, validates the response shape (`arrays[].modules[]`)
+- Renders an overlay panel inside a Shadow DOM (so Enlighten's CSS doesn't leak in/out) with the formatted JSON
+
+If the bookmarklet shows an error overlay, the URL pattern probably changed in a future Enlighten update — fall through to the manual mode below.
+
+### Plain DevTools paste (alternative)
+
+Don't want to install a bookmark? The same code works as a DevTools console paste:
+1. Open DevTools while on the Array view
+2. Paste the contents of [`devtools-snippet.js`](devtools-snippet.js)
+3. Hit Enter — same overlay appears
 
 ## Manual mode
 

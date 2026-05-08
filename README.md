@@ -84,14 +84,15 @@ Heat-mapped roof layout. Each panel is colored by its current W output (or today
 
 Coordinates only live in Enphase **cloud** (Enlighten). Grab the JSON from the browser:
 
-**Easy mode — open your system's Array view** at <https://enlighten.enphaseenergy.com> first, then paste this snippet into the DevTools console. It scans resources the page already loaded, refetches the one that looks like the layout, and copies the `arrays` value to your clipboard:
+**Easy mode** — instead of fiddling with DevTools, install a one-click bookmarklet:
 
-```js
-// docs/devtools-snippet.js — full source in the repo
-(async()=>{const c=performance.getEntriesByType("resource").map(r=>r.name).filter(u=>{try{return new URL(u).origin===location.origin}catch{return false}}).sort((a,b)=>(((/array|layout|panel|module/i.test(a))?-1:0)-((/array|layout|panel|module/i.test(b))?-1:0)));for(const u of c){try{const r=await fetch(u,{credentials:"same-origin"});if(!r.ok)continue;if(!(r.headers.get("content-type")||"").includes("json"))continue;const d=await r.json();if(d?.arrays?.length&&d.arrays[0]?.modules?.length){await navigator.clipboard.writeText(JSON.stringify(d.arrays,null,2));console.log("%c✅ Captured solar layout JSON","color:#43a047;font-weight:700;font-size:14px");console.log(`Source: ${u}`);console.log(d);return}}catch(_){}}console.warn("%c❌ No layout JSON found.","color:#e53935;font-weight:700");})();
-```
+1. Create a new bookmark in your browser. Name: **"Solar layout"**.
+2. URL: copy the contents of [`docs/bookmarklet.txt`](docs/bookmarklet.txt) (one big `javascript:` URL).
+3. On <https://enlighten.enphaseenergy.com>, navigate to your system's Array view, then click the bookmark.
 
-One-shot — no need to refresh, no event listeners. Annotated source: [`docs/devtools-snippet.js`](docs/devtools-snippet.js). Tested in [`docs/test-snippet.spec.mjs`](docs/test-snippet.spec.mjs).
+A panel pops up on the page itself with the JSON in a textarea, plus **Copy** and **Download .json** buttons. No console, no refresh, no event listeners.
+
+The bookmarklet is auto-built from [`docs/devtools-snippet.js`](docs/devtools-snippet.js) (annotated source). If you'd rather paste it into DevTools manually, that file works as-is too. End-to-end behavior is verified by [`docs/test-snippet.spec.mjs`](docs/test-snippet.spec.mjs) (Playwright + a fake local Enlighten).
 
 **Manual mode**:
 1. Sign in to <https://enlighten.enphaseenergy.com/> as the system owner

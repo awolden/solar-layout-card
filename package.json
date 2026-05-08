@@ -1,11 +1,13 @@
 {
-  "name": "solar-layout-card",
+  "name": "lovelace-enphase-cards",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "build:bookmarklet": "node scripts/build-bookmarklet.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0"
+    "@playwright/test": "^1.48.0",
+    "terser": "^5.47.1"
   }
 }
