@@ -5,7 +5,7 @@
  *   - <solar-layout-card>  heat-mapped roof layout
  *   - <solar-stats-card>   live chip strip (now / today / month / lifetime / savings)
  *   - <solar-flow-card>    production / consumption / exported flow visualization
- * https://github.com/awolden/solar-layout-card
+ * https://github.com/awolden/lovelace-enphase-cards
  * MIT License.
  */
 
@@ -1491,21 +1491,21 @@ window.customCards.push(
     name: "Solar Layout",
     description: "Heat-mapped roof layout for Enphase microinverter systems. Live W and daily kWh, with time-travel slider and pan/zoom.",
     preview: false,
-    documentationURL: "https://github.com/awolden/solar-layout-card",
+    documentationURL: "https://github.com/awolden/lovelace-enphase-cards",
   },
   {
     type: "solar-stats-card",
     name: "Solar Stats",
     description: "Live Enphase metrics chip strip — now / today / 7-day / lifetime. Auto-discovers entities.",
     preview: false,
-    documentationURL: "https://github.com/awolden/solar-layout-card#solar-stats-card",
+    documentationURL: "https://github.com/awolden/lovelace-enphase-cards#solar-stats-card",
   },
   {
     type: "solar-flow-card",
     name: "Solar Flow",
     description: "Energy flow visualization — solar generated vs consumption vs exported, 24h chart with live header.",
     preview: false,
-    documentationURL: "https://github.com/awolden/solar-layout-card#solar-flow-card",
+    documentationURL: "https://github.com/awolden/lovelace-enphase-cards#solar-flow-card",
   }
 );
 

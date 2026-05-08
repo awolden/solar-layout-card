@@ -3,7 +3,7 @@
 // When the layout JSON loads, this snippet copies it to your clipboard,
 // formatted and ready to paste into solar-layout-card's `arrays:` config.
 //
-// Repo: https://github.com/awolden/solar-layout-card
+// Repo: https://github.com/awolden/lovelace-enphase-cards
 
 (() => {
   const orig = window.fetch;
