@@ -7,15 +7,15 @@ This card needs to know which serial sits where on your roof. Enphase only store
 Use [`devtools-snippet.js`](devtools-snippet.js):
 
 1. Sign in to <https://enlighten.enphaseenergy.com> as the **system owner**
-2. Open browser DevTools → **Console** tab
-3. Paste the contents of [`devtools-snippet.js`](devtools-snippet.js) and hit Enter
-4. Navigate to your system's **Array** view (or refresh if already there)
-5. The console logs `✅ Captured solar layout JSON` and the data is on your clipboard
+2. Navigate to your system's **Array** view (URL contains `/web/<id>/array`)
+3. Open browser DevTools → **Console** tab
+4. Paste the contents of [`devtools-snippet.js`](devtools-snippet.js) and hit Enter
+5. Console logs `✅ Captured solar layout JSON` and the data is on your clipboard
 6. Paste it under `arrays:` in your card config — done
 
-The snippet patches `window.fetch`, watches for any response that looks like the Enphase array layout (an object with `arrays[].modules[]`), and copies just the `arrays` value as JSON. It auto-restores `window.fetch` once captured.
+The snippet uses the [Performance API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API) to list every resource the array page already loaded, sorts URLs that mention `array`/`layout`/`panel`/`module` to the front, then refetches each (using your existing session cookies) until it finds one whose JSON has the expected `arrays[].modules[]` shape. It copies only the `arrays` value, formatted, to the clipboard.
 
-If the snippet doesn't trigger, fall through to the manual mode below — the endpoint URL or shape may have changed in a future Enlighten update.
+One-shot — no event listeners, no need to refresh. If it can't find anything, you're probably not on the array view yet, or the URL pattern has changed in a future Enlighten update; fall through to the manual mode below.
 
 ## Manual mode
 

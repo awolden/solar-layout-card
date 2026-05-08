@@ -1,8 +1,8 @@
-// Playwright test for docs/devtools-snippet.js.
-// Spins up a local server that serves a fake "Enlighten" page; the page makes
-// a fetch() call that returns layout-shaped JSON; the snippet runs in the
-// browser context and is expected to capture the response and copy it to the
-// clipboard. Asserts on the clipboard content.
+// Playwright test for docs/devtools-snippet.js (one-shot version).
+// Spins up a fake "Enlighten" page that has already loaded a layout JSON
+// resource. The snippet, when pasted, should scan loaded resources via
+// the Performance API, refetch the layout endpoint, and copy the `arrays`
+// value to the clipboard.
 //
 // Run with:
 //   npx playwright install chromium
@@ -45,16 +45,19 @@ test.beforeAll(async () => {
         <html><head><title>Fake Enlighten</title></head>
         <body><h1>Loading…</h1>
         <script>
-          // Simulate the Enlighten page making an XHR for layout JSON
-          window.addEventListener("DOMContentLoaded", () => {
-            setTimeout(() => fetch("/api/array_layout"), 100);
-          });
+          // Page pre-loads the layout endpoint, exactly like Enlighten does.
+          fetch("/api/array_layout").then(r => r.json());
+          // And some unrelated noise (a non-matching JSON endpoint)
+          fetch("/api/user_prefs").then(r => r.json()).catch(() => {});
         </script>
         </body></html>
       `);
     } else if (req.url === "/api/array_layout") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(FAKE_LAYOUT));
+    } else if (req.url === "/api/user_prefs") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ theme: "dark", language: "en" }));
     } else {
       res.writeHead(404).end();
     }
@@ -65,21 +68,19 @@ test.beforeAll(async () => {
 
 test.afterAll(() => server.close());
 
-test("snippet captures layout JSON to clipboard", async () => {
+test("snippet finds layout JSON in already-loaded resources", async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const page = await ctx.newPage();
-  // Capture console for asserting the success log
   const logs = [];
   page.on("console", msg => logs.push(msg.text()));
 
   await page.goto(`${baseUrl}/array`);
-  // Inject the snippet BEFORE the auto-fetch fires.
+  // Wait for the page's pre-loaded fetches to settle
+  await page.waitForLoadState("networkidle");
+
+  // Now run the snippet — it should find the loaded layout endpoint
   await page.evaluate(SNIPPET);
-  // Trigger the fetch (it would have fired on DOMContentLoaded but we may have
-  // raced; nudge it).
-  await page.evaluate(() => fetch("/api/array_layout"));
-  // Give the snippet a tick to process the response.
   await page.waitForTimeout(200);
 
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
@@ -90,23 +91,29 @@ test("snippet captures layout JSON to clipboard", async () => {
   expect(parsed[0].modules.length).toBe(2);
   expect(parsed[0].modules[0].inverter.serial_num).toBe("555000111222");
   expect(logs.some(l => l.includes("Captured solar layout JSON"))).toBe(true);
+  expect(logs.some(l => l.includes("/api/array_layout"))).toBe(true);
 
   await browser.close();
 });
 
-test("snippet ignores non-layout JSON responses", async () => {
+test("snippet warns when no layout JSON is on the page", async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
   const page = await ctx.newPage();
-  // Use a blank page so nothing auto-fires the layout fetch
+  const warnings = [];
+  page.on("console", msg => {
+    if (msg.type() === "warning") warnings.push(msg.text());
+  });
+
+  // Plain blank page — no resources for the snippet to find
   await page.goto(`${baseUrl}/blank`);
   await page.evaluate(() => navigator.clipboard.writeText("untouched"));
   await page.evaluate(SNIPPET);
-  await page.evaluate(async () => {
-    await fetch("data:application/json,{\"foo\":\"bar\"}");
-  });
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(200);
+
   const clipboard = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboard).toBe("untouched");
+  expect(warnings.some(w => w.includes("No layout JSON found"))).toBe(true);
+
   await browser.close();
 });

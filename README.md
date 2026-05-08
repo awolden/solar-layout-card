@@ -84,14 +84,14 @@ Heat-mapped roof layout. Each panel is colored by its current W output (or today
 
 Coordinates only live in Enphase **cloud** (Enlighten). Grab the JSON from the browser:
 
-**Easy mode — paste this snippet** into the DevTools console while signed into <https://enlighten.enphaseenergy.com>, then navigate to your system's Array view. The snippet auto-detects the layout response and copies it to your clipboard, ready to paste under `arrays:` in the card config:
+**Easy mode — open your system's Array view** at <https://enlighten.enphaseenergy.com> first, then paste this snippet into the DevTools console. It scans resources the page already loaded, refetches the one that looks like the layout, and copies the `arrays` value to your clipboard:
 
 ```js
 // docs/devtools-snippet.js — full source in the repo
-(()=>{const o=window.fetch;let c=false;window.fetch=async function(...a){const r=await o.apply(this,a);if(c)return r;try{const d=await r.clone().json();if(d?.arrays?.length&&d.arrays[0].modules){c=true;await navigator.clipboard.writeText(JSON.stringify(d.arrays,null,2));console.log("%c✅ Captured solar layout JSON","color:#43a047;font-weight:700;font-size:14px");window.fetch=o;}}catch(_){}return r;};console.log("%c👀 Watching for layout JSON…","color:#1e88e5;font-weight:600");})();
+(async()=>{const c=performance.getEntriesByType("resource").map(r=>r.name).filter(u=>{try{return new URL(u).origin===location.origin}catch{return false}}).sort((a,b)=>(((/array|layout|panel|module/i.test(a))?-1:0)-((/array|layout|panel|module/i.test(b))?-1:0)));for(const u of c){try{const r=await fetch(u,{credentials:"same-origin"});if(!r.ok)continue;if(!(r.headers.get("content-type")||"").includes("json"))continue;const d=await r.json();if(d?.arrays?.length&&d.arrays[0]?.modules?.length){await navigator.clipboard.writeText(JSON.stringify(d.arrays,null,2));console.log("%c✅ Captured solar layout JSON","color:#43a047;font-weight:700;font-size:14px");console.log(`Source: ${u}`);console.log(d);return}}catch(_){}}console.warn("%c❌ No layout JSON found.","color:#e53935;font-weight:700");})();
 ```
 
-The full annotated version is at [`docs/devtools-snippet.js`](docs/devtools-snippet.js); it's tested in [`docs/test-snippet.spec.mjs`](docs/test-snippet.spec.mjs).
+One-shot — no need to refresh, no event listeners. Annotated source: [`docs/devtools-snippet.js`](docs/devtools-snippet.js). Tested in [`docs/test-snippet.spec.mjs`](docs/test-snippet.spec.mjs).
 
 **Manual mode**:
 1. Sign in to <https://enlighten.enphaseenergy.com/> as the system owner
