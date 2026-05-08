@@ -8,7 +8,13 @@ A small suite of Lovelace cards for [Home Assistant](https://www.home-assistant.
 | [`solar-stats-card`](#solar-stats-card) | Live chip strip — Now / House / Export / Today / 7-day / Lifetime. |
 | [`solar-flow-card`](#solar-flow-card) | 24h flow chart — production vs consumption vs exported. |
 
-> Screenshots live in [`docs/screenshots/`](docs/screenshots/) (drop your own when you set it up).
+![Solar dashboard — stats chips, 24h flow chart, panel layout](docs/screenshots/full-dashboard.png)
+
+<sub>Stats chips on top, 24h flow chart, and roof layout — all three cards in a single Lovelace view. Mobile responsive (stats and flow stack vertically, slider gets its own row, layout panels reflow):</sub>
+
+<p align="center">
+  <img src="docs/screenshots/mobile.jpg" alt="Mobile view" width="280" />
+</p>
 
 ---
 
